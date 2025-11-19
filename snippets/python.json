@@ -1,0 +1,10 @@
+{
+    "Starter Template": {
+        "prefix": "st",
+        "body": [
+            "#!/usr/bin/python3.13",
+            "",
+            "$0"
+        ]
+    }
+}
