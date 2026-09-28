@@ -1,0 +1,5 @@
+# nvim runtime logs
+nvim.log
+
+# agent session artifacts
+.reasonix/

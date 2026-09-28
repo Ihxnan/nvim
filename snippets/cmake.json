@@ -1,0 +1,18 @@
+{
+    "Starter Template": {
+        "prefix": "st",
+        "body": [
+            "cmake_minimum_required(VERSION 3.10)",
+            "",
+            "project(${1:MyProject})",
+            "",
+            "# set(SOURCES main.cpp)",
+            "",
+            "file(GLOB SOURCES \"*.cpp\")",
+            "",
+            "add_executable(${2:a.out} \\${SOURCES})"
+        ],
+        "description": "Basic CMake starter template"
+    }
+}
+
