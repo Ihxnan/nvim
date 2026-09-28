@@ -7,6 +7,10 @@
 -- ╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝     ╚══════╝
 --
 --  功能：Neovim 自定义按键映射 + 多语言代码运行/预览 + 窗口/缓冲区高效管理
+--
+--  ⚠️ Colemak 布局分支：hjkl 位移键已按 Colemak 家位重映射为 h/n/e/i，
+--     被挤出的「词尾 / 插入」落到 j / l，「搜索下一个」落到 k。
+--     本轮只处理位移相关；g/b/r/c/d 等前缀和弦暂未处理。
 
 -- ======================== 1. 基础配置 ========================
 vim.g.mapleader = " " -- 设置<leader>键为空格（自定义快捷键的前缀）
@@ -240,37 +244,37 @@ end
 -- ======================== 3. 通用模式快捷键 ========================
 
 -- 3.1 插入模式
-keymap.set("i", "jk", "<ESC>") -- 快速退出插入模式（替代ESC键，减少抬手）
+keymap.set("i", "ne", "<ESC>") -- 快速退出插入模式（Colemak：原 jk，物理位置不变）
 keymap.set("i", "<C-s>", "<ESC>:w<CR>") -- 插入模式下Ctrl+s快速保存
 
 -- 3.2 终端模式
-keymap.set("t", "jk", "<C-\\><C-n>") -- 终端模式下jk退出到普通模式
+keymap.set("t", "ne", "<C-\\><C-n>") -- 终端模式下ne退出到普通模式（Colemak：原 jk）
 
 -- 3.3 视觉模式
-keymap.set("v", "J", ":m '>+1<CR>gv=gv") -- 选中行向下移动
-keymap.set("v", "K", ":m '<-2<CR>gv=gv") -- 选中行向上移动
-keymap.set("v", "ii", "<ESC>") -- 视觉模式下ii退出到普通模式
+keymap.set("v", "N", ":m '>+1<CR>gv=gv") -- 选中行向下移动（Colemak：原 J）
+keymap.set("v", "E", ":m '<-2<CR>gv=gv") -- 选中行向上移动（Colemak：原 K）
+keymap.set("v", "ll", "<ESC>") -- 视觉模式下ll退出到普通模式（Colemak：原 ii）
 keymap.set("v", "<C-c>", '"+y') -- 视觉模式下Ctrl+c复制选中内容到系统剪贴板
 
 -- ======================== 4. 窗口管理 ========================
 
 -- 4.1 窗口导航 - 插入模式
 keymap.set("i", "<C-h>", "<ESC><C-w>h", { desc = "插入模式：切换到左侧窗口" })
-keymap.set("i", "<C-j>", "<ESC><C-w>j", { desc = "插入模式：切换到下方窗口" })
-keymap.set("i", "<C-k>", "<ESC><C-w>k", { desc = "插入模式：切换到上方窗口" })
-keymap.set("i", "<C-l>", "<ESC><C-w>l", { desc = "插入模式：切换到右侧窗口" })
+keymap.set("i", "<C-n>", "<ESC><C-w>j", { desc = "插入模式：切换到下方窗口" })
+keymap.set("i", "<C-e>", "<ESC><C-w>k", { desc = "插入模式：切换到上方窗口" })
+keymap.set("i", "<C-i>", "<ESC><C-w>l", { desc = "插入模式：切换到右侧窗口" })
 
 -- 4.2 窗口导航 - 终端模式
 keymap.set("t", "<C-h>", "<C-\\><C-n><C-w>h", { desc = "终端模式：切换到左侧窗口" })
-keymap.set("t", "<C-j>", "<C-\\><C-n><C-w>j", { desc = "终端模式：切换到下方窗口" })
-keymap.set("t", "<C-k>", "<C-\\><C-n><C-w>k", { desc = "终端模式：切换到上方窗口" })
-keymap.set("t", "<C-l>", "<C-\\><C-n><C-w>l", { desc = "终端模式：切换到右侧窗口" })
+keymap.set("t", "<C-n>", "<C-\\><C-n><C-w>j", { desc = "终端模式：切换到下方窗口" })
+keymap.set("t", "<C-e>", "<C-\\><C-n><C-w>k", { desc = "终端模式：切换到上方窗口" })
+keymap.set("t", "<C-i>", "<C-\\><C-n><C-w>l", { desc = "终端模式：切换到右侧窗口" })
 
 -- 4.3 窗口导航 - 普通模式
 keymap.set("n", "<C-h>", "<C-w>h", { desc = "切换到左侧窗口" })
-keymap.set("n", "<C-j>", "<C-w>j", { desc = "切换到下方窗口" })
-keymap.set("n", "<C-k>", "<C-w>k", { desc = "切换到上方窗口" })
-keymap.set("n", "<C-l>", "<C-w>l", { desc = "切换到右侧窗口" })
+keymap.set("n", "<C-n>", "<C-w>j", { desc = "切换到下方窗口" })
+keymap.set("n", "<C-e>", "<C-w>k", { desc = "切换到上方窗口" })
+keymap.set("n", "<C-i>", "<C-w>l", { desc = "切换到右侧窗口" })
 
 -- 4.4 窗口创建
 keymap.set("n", "<leader>wv", "<C-w>s", { desc = "Leader+wv：水平分割窗口（上下）" })
@@ -278,9 +282,9 @@ keymap.set("n", "<leader>wh", "<C-w>v", { desc = "Leader+wh：垂直分割窗口
 
 -- 4.5 窗口位置移动
 keymap.set("n", "gwh", "<C-w>H", { desc = "gwh：将当前窗口移到最左侧" })
-keymap.set("n", "gwj", "<C-w>J", { desc = "gwj：将当前窗口移到最下方" })
-keymap.set("n", "gwk", "<C-w>K", { desc = "gwk：将当前窗口移到最上方" })
-keymap.set("n", "gwl", "<C-w>L", { desc = "gwl：将当前窗口移到最右侧" })
+keymap.set("n", "gwn", "<C-w>J", { desc = "gwn：将当前窗口移到最下方（Colemak：原 gwj）" })
+keymap.set("n", "gwe", "<C-w>K", { desc = "gwe：将当前窗口移到最上方（Colemak：原 gwk）" })
+keymap.set("n", "gwi", "<C-w>L", { desc = "gwi：将当前窗口移到最右侧（Colemak：原 gwl）" })
 
 -- 4.6 窗口关闭
 keymap.set("n", "gwd", "<C-w>q", { desc = "gwd：关闭当前窗口" })
@@ -294,11 +298,16 @@ keymap.set("n", "<M-->", "<C-w><", { desc = "Alt+-：缩小当前窗口宽度" }
 
 -- 5.1 缓冲区切换（基于 BufferLine 插件）
 keymap.set("n", "H", ":w<CR>:BufferLineCyclePre<CR>", { desc = "Shift+H：保存并切换到上一个缓冲区" })
-keymap.set("n", "L", ":w<CR>:BufferLineCycleNext<CR>", { desc = "Shift+L：保存并切换到下一个缓冲区" })
+keymap.set(
+	"n",
+	"I",
+	":w<CR>:BufferLineCycleNext<CR>",
+	{ desc = "Shift+I：保存并切换到下一个缓冲区（Colemak：原 L）" }
+)
 
 -- 5.2 缓冲区基本操作
 keymap.set("n", "gbh", ":bprevious<CR>", { desc = "gbh：切换到上一个缓冲区" })
-keymap.set("n", "gbl", ":bnext<CR>", { desc = "gbl：切换到下一个缓冲区" })
+keymap.set("n", "gbi", ":bnext<CR>", { desc = "gbi：切换到下一个缓冲区（Colemak：原 gbl）" })
 keymap.set("n", "gbd", ":bdelete<CR>", { desc = "gbd：关闭当前缓冲区" })
 keymap.set("n", "gbo", ":BufferLineCloseOthers<CR>", { desc = "gbo：关闭其他所有缓冲区" })
 
@@ -342,8 +351,8 @@ keymap.set("n", "gmc", close_code, { desc = "gmc：关闭HTML实时预览" })
 
 -- ======================== 8. 搜索与导航 ========================
 keymap.set("n", "<leader>nh", ":nohl<CR>", { desc = "Leader+nh：取消搜索高亮" })
-keymap.set("n", "n", "nzz", { desc = "n：搜索下一个并居中显示" })
-keymap.set("n", "N", "Nzz", { desc = "N：搜索上一个并居中显示" })
+keymap.set("n", "k", "nzz", { desc = "k：搜索下一个并居中显示（Colemak：原 n）" })
+keymap.set("n", "K", "Nzz", { desc = "K：搜索上一个并居中显示（Colemak：原 N）" })
 
 -- ======================== 9. 编辑效率 ========================
 
@@ -383,11 +392,16 @@ keymap.set(
 -- 9.2 快速保存
 keymap.set("n", "<C-S>", ":w<CR>", { desc = "Ctrl+S：快速保存" })
 
--- 9.3 光标快速移动（兼容折行）
-keymap.set("n", "j", "gj", { desc = "j：按视觉行向下移动" })
-keymap.set("n", "k", "gk", { desc = "k：按视觉行向上移动" })
-keymap.set("n", "J", "5j", { desc = "J：快速向下移动5行" })
-keymap.set("n", "K", "5k", { desc = "K：快速向上移动5行" })
+-- 9.3 光标快速移动（兼容折行）—— Colemak：把 hjkl 收到 Colemak 家位 h/n/e/i
+keymap.set("n", "n", "gj", { desc = "n：按视觉行向下移动（Colemak：原 j）" })
+keymap.set("n", "e", "gk", { desc = "e：按视觉行向上移动（Colemak：原 k）" })
+keymap.set("n", "N", "5j", { desc = "N：快速向下移动5行（Colemak：原 J）" })
+keymap.set("n", "E", "5k", { desc = "E：快速向上移动5行（Colemak：原 K）" })
+
+-- 9.4 Colemak 被挤出的默认命令：落到旧位移键 j / l 上
+keymap.set("n", "i", "l", { desc = "i：向右移动（Colemak：原 l）" })
+keymap.set("n", "j", "e", { desc = "j：移动到词尾（Colemak：原 e）" })
+keymap.set("n", "l", "i", { desc = "l：进入插入模式（Colemak：原 i）" })
 
 local submit = function()
 	vim.cmd("w")
