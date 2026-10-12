@@ -125,10 +125,10 @@ local function copy_python_with_info()
 				if i < last_line then
 					table.insert(result_parts, "") -- 模板与后续内容之间加空行分隔
 				end
-				print("✅ 已内联 ihxnan 模板 (" .. #code .. " 字节)")
+				print("✅ Inlined ihxnan template (" .. #code .. " bytes)")
 			else
 				table.insert(result_parts, line)
-				print("⚠️ 未找到模板文件 " .. PY_INCLUDE_FILE .. "，保留原 import 行")
+				print("⚠️ Template file not found " .. PY_INCLUDE_FILE .. ", keeping the import line")
 			end
 		else
 			table.insert(result_parts, line)
@@ -140,7 +140,7 @@ local function copy_python_with_info()
 	local full = table.concat(result_parts, "\n")
 	vim.fn.setreg("+", full)
 	vim.fn.setreg('"', full)
-	print("✅ 已复制 Python 竞赛代码 (" .. #full .. " 字节)")
+	print("✅ Copied Python contest code (" .. #full .. " bytes)")
 end
 
 -- Ctrl+a+Ctrl+i：解析 MACRO/TEMPLATE/INCLUDE/SOLVE 标签区域，内联后拼接完整竞赛代码
@@ -156,7 +156,7 @@ local function copy_all_with_info()
 		vim.cmd('normal! gg"+yG``')
 		local lines = vim.fn.line("$")
 		local bytes = #vim.fn.getreg("+")
-		print("✅ 已复制全部 " .. lines .. " 行 (" .. bytes .. " 字节) 到系统剪贴板")
+		print("✅ Copied all " .. lines .. " lines (" .. bytes .. " bytes) to clipboard")
 		return
 	end
 
@@ -222,7 +222,7 @@ local function copy_all_with_info()
 		end
 		need_separator = true -- 与后续内容之间添加空行
 		included_count = included_count + 1
-		print("✅ 已内联 <" .. name .. "> (" .. #code .. " 字节)")
+		print("✅ Inlined <" .. name .. "> (" .. #code .. " bytes)")
 	end
 
 	for i = 1, last_line do
@@ -263,7 +263,7 @@ local function copy_all_with_info()
 	vim.fn.setreg("+", full)
 	vim.fn.setreg('"', full)
 	local total = #full
-	print("✅ 已复制 " .. included_count .. " 个模板 (" .. total .. " 字节)")
+	print("✅ Copied " .. included_count .. " templates (" .. total .. " bytes)")
 end
 
 -- 模板内联复制映射

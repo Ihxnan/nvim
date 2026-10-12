@@ -12,32 +12,14 @@
 vim.g.mapleader = " " -- 设置<leader>键为空格（自定义快捷键的前缀）
 local keymap = vim.keymap -- 简化按键映射函数的调用（:help vim.keymap）
 local clipboard = require("config.clipboard")
+local paths = require("config.paths") -- 统一推导 .in/.out 数据文件路径（与 companion.lua 共用）
 clipboard.setup_system_clipboard() -- 系统剪贴板快捷键
 clipboard.setup_template_copy() -- <C-a><C-i>：内联模板并复制完整竞赛代码
 
--- 算法输入 data 文件：不再所有源文件共用一个，而是按当前编辑文件路径自动派生：
---   /home/ihxnan/WorkSpace/test.cpp → /home/ihxnan/Data/WorkSpace/test.txt
--- 即 <数据根目录>/<源文件父目录名>/<源文件名>.txt
-local DATA_ROOT = vim.fn.expand("~") .. "/Data"
-
---- 依据当前缓冲区路径推导专属 data 文件；未命名缓冲区回退到 DATA_ROOT/unnamed.txt
-local function get_data_file()
-	local abs = vim.fn.expand("%:p")
-	if abs == "" then
-		return DATA_ROOT .. "/unnamed.txt"
-	end
-	local parent = vim.fn.fnamemodify(abs, ":h:t") -- 源文件父目录名
-	local stem = vim.fn.fnamemodify(abs, ":t:r") -- 源文件名（去扩展名）
-	if parent == "" or parent == "." then
-		return DATA_ROOT .. "/" .. stem .. ".txt"
-	end
-	return DATA_ROOT .. "/" .. parent .. "/" .. stem .. ".txt"
-end
-
---- 确保 data 文件的父目录存在（写入 / 打开前调用）
-local function ensure_data_dir(path)
-	vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
-end
+-- 算法输入/答案文件：按当前编辑文件路径自动派生（规则见 config/paths.lua）：
+--   /home/ihxnan/WorkSpace/test.cpp → /home/ihxnan/Data/WorkSpace/test.in   （输入 / rd）
+--                                     /home/ihxnan/Data/WorkSpace/test.out  （期望答案 / rc 判题）
+-- 即 <数据根目录>/<源文件父目录名>/<源文件名>.in / .out
 
 -- ======================== 2. 自定义函数 ========================
 
@@ -48,7 +30,19 @@ local C = {
 	yellow = "\\033[33m",
 	green = "\\033[32m",
 	red = "\\033[31m",
+	magenta = "\\033[35m",
+	green_bold = "\\033[1;32m",
+	red_bold = "\\033[1;31m",
 	reset = "\\033[0m",
+}
+
+-- 各运行命令「头部标注」的专属强调色（加粗、彼此可区分；正文仍用上面的语义色）
+local CMD_COLOR = {
+	rc = "\\033[1;36m", -- 亮青
+	rd = "\\033[1;34m", -- 亮蓝
+	rp = "\\033[1;35m", -- 亮紫
+	rn = "\\033[1;32m", -- 亮绿
+	rl = "\\033[1;33m", -- 亮黄
 }
 
 --- 生成带颜色的 echo 命令片段
@@ -56,79 +50,213 @@ local function e(msg, color)
 	return 'echo -e "' .. color .. msg .. C.reset .. '"'
 end
 
---- 将命令列表拼接为 vsplit + terminal bash -c 的 Ex 命令
-local function term_cmd(cmds)
-	return "vsplit | terminal bash -c '" .. table.concat(cmds, "; ") .. "'"
+--- 将命令列表写成临时脚本再执行。
+--- 不直接拼成一条 :terminal 命令：那样有长度上限（约 900 字符即触发 E114/E499），
+--- 且 `%`、`<...>`、`<(...)` 会被 Ex 层展开/误解析。落成脚本文件后，:terminal 只跑一句
+--- 短命令，脚本可任意长、由 bash 自己解析，无 Vim 层转义问题。
+local RUN_SCRIPT_PATH = "/tmp/ihxnan_run.sh"
+local function run_script(cmds)
+	vim.fn.writefile({ table.concat(cmds, "; ") }, RUN_SCRIPT_PATH)
+	vim.cmd("vsplit | terminal bash " .. RUN_SCRIPT_PATH)
+end
+
+--- 归一化命令：先剥掉 ANSI 颜色码（调试模式下程序输出被 dbg_putchar 包成紫色），再去行尾空白
+local function norm_of(path)
+	return '<(sed -e "s/\\x1b\\[[0-9;]*m//g" -e "s/[[:space:]]*$//" "' .. path .. '")'
+end
+
+--- 判题结果行标签：多组时带 [Test k] 前缀，单组时沿用 [Check]
+local function label_of(k, total, text)
+	return (total > 1) and ("[Test " .. k .. "] " .. text) or ("[Check] " .. text)
+end
+
+--- 追加「多组遍历判题」的命令块（C/C++、python 共用）。
+--- run_of(k) 返回该组「把程序结果打到 stdout」的命令（不含 tee/对比）。
+local function append_multi_tests(cmds, groups, any_out, run_of)
+	local total = #groups
+	table.insert(cmds, "_ac=0; _wa=0")
+	for _, k in ipairs(groups) do
+		local out_k = paths.out_file(nil, k)
+		if total > 1 then
+			table.insert(cmds, e("── Test " .. k .. "/" .. total .. " ──", C.cyan))
+		end
+		if vim.fn.filereadable(out_k) == 1 then
+			table.insert(cmds, run_of(k) .. " | tee /tmp/ihxnan_run.out")
+			table.insert(
+				cmds,
+				"if diff -q -B "
+					.. norm_of(out_k)
+					.. " "
+					.. norm_of("/tmp/ihxnan_run.out")
+					.. " >/dev/null 2>&1; then "
+					.. e(label_of(k, total, "Accepted"), C.green)
+					.. "; _ac=$(( _ac + 1 )); else "
+					.. e(label_of(k, total, "Wrong Answer"), C.red)
+					.. "; _wa=$(( _wa + 1 )); "
+					.. e("--- expected ---", C.yellow)
+					.. '; cat "'
+					.. out_k
+					.. '"; '
+					.. e("--- diff (expected vs yours) ---", C.magenta)
+					.. "; diff -B "
+					.. norm_of(out_k)
+					.. " "
+					.. norm_of("/tmp/ihxnan_run.out")
+					.. "; fi"
+			)
+		else
+			table.insert(cmds, run_of(k))
+			if any_out and total > 1 then
+				table.insert(cmds, e(label_of(k, total, "no .out, skip"), C.yellow))
+			end
+		end
+	end
+	if any_out and total > 1 then
+		table.insert(
+			cmds,
+			'if [ "$_wa" -eq 0 ]; then '
+				.. e("=== All tests passed ($_ac) ===", C.green_bold)
+				.. "; else "
+				.. e("=== Tests failed ($_ac passed / $_wa failed) ===", C.red_bold)
+				.. "; fi"
+		)
+	end
 end
 
 -- 2.2 多语言代码通用运行
---- 运行代码（可选带输入数据重定向；with_macro 为 true 时编译加本地调试宏 -DIHXNAN）
-local function run_code(with_data, with_macro)
+--- 运行代码。opts：
+---   files: "plugin" | "manual" | "none"
+---          plugin — 插件生成的样例 <名>.1.in/.2.in…（rc/rd，可多组判题）
+---          manual — 手动数据文件 <名>.txt（rp/rn）
+---          none   — 不重定向 stdin（rl 非 C/C++ 回退）
+---   macro: boolean  编译加本地调试宏 -DIHXNAN
+---   check: boolean  与 <名>.N.out 判题（仅 plugin 模式有效）
+---   cmd:   string   头部标签（rc/rd/rp/rn/rl）
+local function run_code(opts)
+	opts = opts or {}
+	local files = opts.files or "none"
+	local with_data = files ~= "none"
+	local with_macro = opts.macro
+	local with_check = opts.check
+	local cmd = opts.cmd
 	vim.cmd("w")
 	local ft = vim.bo.filetype
-	local data_label = with_data and "（带数据）" or ""
-	local data_redirect = with_data and (' < "' .. get_data_file() .. '"') or ""
 
-	print("🚀 正在运行 " .. ft .. data_label .. " ...")
+	local src = vim.fn.expand("%:p") -- 当前源文件绝对路径（写进脚本用，不依赖 Ex 层 `%`）
+	local macro_label = with_macro and "-DIHXNAN" or "no macro"
+	local manual_file = paths.txt_file() -- 手动数据文件 <名>.txt
+
+	-- 插件样例组：<名>.1.in / <名>.2.in …（连续，遇缺即止）
+	local groups = {}
+	if files == "plugin" then
+		local k = 1
+		while vim.fn.filereadable(paths.in_file(nil, k)) == 1 do
+			groups[#groups + 1] = k
+			k = k + 1
+		end
+	end
+	local any_out = false
+	for _, k in ipairs(groups) do
+		if vim.fn.filereadable(paths.out_file(nil, k)) == 1 then
+			any_out = true
+			break
+		end
+	end
+	-- 多组判题：仅 plugin + check + 有样例
+	local multi = (files == "plugin") and with_check and #groups > 0
+	local judging = multi and any_out
+
+	local data_redirect = ""
+	if files == "manual" then
+		data_redirect = ' < "' .. manual_file .. '"'
+	elseif files == "plugin" then
+		data_redirect = ' < "' .. paths.in_file(nil, 1) .. '"' -- 单组兜底
+	end
+
+	local data_label = ({ plugin = "plugin data", manual = "manual .txt", none = "no data" })[files]
+	local check_label = judging and ", judging" or ""
+
+	-- 头部标注：命令名 + 专属色（正文仍用语义色）
+	local tag = cmd or "run"
+	local header = e("[" .. tag .. "] " .. data_label .. ", " .. macro_label .. check_label, CMD_COLOR[cmd] or C.cyan)
+	print("🚀 [" .. tag .. "] Running " .. ft .. " (" .. data_label .. ", " .. macro_label .. check_label .. ") ...")
 
 	if ft == "cpp" or ft == "c" then
-		-- with_macro 为 true 时（rl/rd/rp）编译加本地调试宏 -DIHXNAN；rc 不加
 		local macro = with_macro and " -DIHXNAN" or ""
 		local cmds = {
+			header,
 			e("[Compile] Starting C++ compilation...", C.blue),
-			'g++ -O2 -fsanitize=address,undefined,leak "%" -o a.out' .. macro .. " 2>&1",
+			'g++ -O2 -fsanitize=address,undefined,leak "' .. src .. '" -o a.out' .. macro .. " 2>&1",
 			"if [ $? -eq 0 ]; then " .. e("[Run] Program output:", C.cyan),
-			"time ./a.out" .. data_redirect,
+		}
+		if multi then
+			-- 遍历所有样例组：有 .out 的组对比，无 .out 的组只运行
+			append_multi_tests(cmds, groups, any_out, function(k)
+				return './a.out < "' .. paths.in_file(nil, k) .. '"'
+			end)
+		else
+			table.insert(cmds, "./a.out" .. data_redirect)
+		end
+		vim.list_extend(cmds, {
 			e("[Clean] Removing temporary file a.out", C.yellow),
 			"rm -f a.out",
 			e("[Done] All operations completed", C.green),
 			"else " .. e("[Error] Compilation failed! Please fix your code and try again", C.red),
 			"fi",
-		}
-		vim.cmd(term_cmd(cmds))
+		})
+		run_script(cmds)
 	elseif ft == "python" then
 		local cmds = {
+			header,
 			e("[Check] Syntax checking...", C.blue),
-			'python3 -B -m py_compile "%" 2>&1',
+			'python3 -B -m py_compile "' .. src .. '" 2>&1',
 			"if [ $? -eq 0 ]; then "
 				.. e("[Run] Executing Python file" .. (with_data and " (with input data)" or "") .. "...", C.cyan),
-			'time python3 -B "%"'
-				.. data_redirect
-				.. "| lolcat; find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null",
+		}
+		local pycache_clean = "find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null"
+		if multi then
+			append_multi_tests(cmds, groups, any_out, function(k)
+				return 'python3 -B "' .. src .. '" < "' .. paths.in_file(nil, k) .. '" | lolcat'
+			end)
+			table.insert(cmds, pycache_clean)
+		else
+			table.insert(cmds, 'python3 -B "' .. src .. '"' .. data_redirect .. " | lolcat; " .. pycache_clean)
+		end
+		vim.list_extend(cmds, {
 			e("[Done] Python finished", C.green),
 			"else " .. e("[Error] Syntax error! Fix your code", C.red),
 			"fi",
-		}
-		vim.cmd(term_cmd(cmds))
+		})
+		run_script(cmds)
 	elseif ft == "java" then
 		if with_data then
-			print("⚠️ Java 暂不支持带数据运行")
+			print("⚠️ Java: running with data is not supported")
 			return
 		end
 		local class_name = vim.fn.expand("%:t:r")
 		vim.cmd("split | terminal javac % && java " .. class_name .. "; rm -f " .. class_name .. ".class")
 	elseif ft == "cmake" then
 		if with_data then
-			print("⚠️ CMake 暂不支持带数据运行")
+			print("⚠️ CMake: running with data is not supported")
 			return
 		end
-		print("🔧 正在构建 CMake 项目 ...")
+		print("🔧 Building CMake project ...")
 		vim.cmd("split | terminal rm -rf build && mkdir build && cd build && cmake .. && make; $SHELL")
 		vim.cmd("startinsert")
 	elseif ft == "sh" then
 		if with_data then
-			print("⚠️ Shell 暂不支持带数据运行")
+			print("⚠️ Shell: running with data is not supported")
 			return
 		end
 		vim.cmd("split | terminal sh %")
 	elseif ft == "html" then
 		if with_data then
-			print("⚠️ HTML 暂不支持带数据运行")
+			print("⚠️ HTML: running with data is not supported")
 			return
 		end
 		vim.cmd("split | terminal chromium %")
 	else
-		print("❌ 不支持的文件类型: " .. ft)
+		print("❌ Unsupported filetype: " .. ft)
 	end
 end
 
@@ -139,22 +267,24 @@ local run_local = function()
 
 	-- 仅 C/C++ 使用带 -DIHXNAN 的编译方式（启用本地调试宏）
 	if ft == "cpp" or ft == "c" then
-		print("🚀 正在运行 " .. ft .. "（本地调试模式）...")
+		print("🚀 [rl] Running " .. ft .. " (no data, -DIHXNAN, local debug) ...")
+		local src = vim.fn.expand("%:p")
 		local cmds = {
+			e("[rl] no data, -DIHXNAN, local debug", CMD_COLOR.rl),
 			e("[Compile] Starting C++ compilation (local debug)...", C.blue),
-			'g++ -O2 -fsanitize=address,undefined,leak "%" -o a.out -DIHXNAN 2>&1',
+			'g++ -O2 -fsanitize=address,undefined,leak "' .. src .. '" -o a.out -DIHXNAN 2>&1',
 			"if [ $? -eq 0 ]; then " .. e("[Run] Program output:", C.cyan),
-			"time ./a.out",
+			"./a.out",
 			e("[Clean] Removing temporary file a.out", C.yellow),
 			"rm -f a.out",
 			e("[Done] All operations completed", C.green),
 			"else " .. e("[Error] Compilation failed! Please fix your code and try again", C.red),
 			"fi",
 		}
-		vim.cmd(term_cmd(cmds))
+		run_script(cmds)
 	else
-		-- 其他文件类型回退到普通运行
-		run_code(false)
+		-- 其他文件类型回退到普通运行（仍标注 rl）
+		run_code({ files = "none", cmd = "rl" })
 	end
 end
 
@@ -174,7 +304,7 @@ local run_cuda = function()
 		vim.cmd("split | terminal nvcc -arch=sm_89 % && ./a.out && rm -f a.out")
 	else
 		-- 非支持类型给出提示
-		print("不支持的文件类型: " .. filetype)
+		print("Unsupported filetype: " .. filetype)
 	end
 end
 
@@ -187,7 +317,7 @@ local preview_code = function()
 	if filetype == "html" then
 		vim.cmd("LivePreview start")
 	else
-		print("不支持的文件类型: " .. filetype)
+		print("Unsupported filetype: " .. filetype)
 	end
 end
 
@@ -197,7 +327,7 @@ local close_code = function()
 	if filetype == "html" then
 		vim.cmd("LivePreview close") -- 关闭LivePreview预览窗口
 	else
-		print("不支持的文件类型: " .. filetype)
+		print("Unsupported filetype: " .. filetype)
 	end
 end
 
@@ -206,11 +336,11 @@ end
 local paste_to_data = function()
 	local content = vim.fn.getreg("+")
 	if not content or content == "" then
-		print("⚠️ 剪贴板为空，跳过写入")
+		print("⚠️ Clipboard empty, skipped")
 		return
 	end
-	local data_file = get_data_file()
-	ensure_data_dir(data_file)
+	local data_file = paths.txt_file() -- 手动数据文件 <名>.txt
+	paths.ensure_dir(data_file)
 	local file = io.open(data_file, "w")
 	if file then
 		-- 确保末尾有换行符，避免 C++ 的 gc() 读到 EOF 后死循环
@@ -222,19 +352,10 @@ local paste_to_data = function()
 		file:close()
 		local lines = vim.fn.substitute(content, "[^\\n]", "", "g")
 		local line_count = #lines + 1
-		print("✅ 已写入 " .. line_count .. " 行到 " .. data_file .. " (" .. content:len() .. " 字节)")
+		print("✅ Wrote " .. line_count .. " lines to " .. data_file .. " (" .. content:len() .. " bytes)")
 	else
-		print("❌ 错误：无法打开 data 文件写入：" .. data_file)
+		print("❌ Error: cannot open data file for writing: " .. data_file)
 	end
-end
-
---- 粘贴剪贴板内容 + 延迟运行代码（带数据）
-local run_code_with_paste = function()
-	vim.cmd("w")
-	paste_to_data()
-	vim.defer_fn(function()
-		run_code(true, true)
-	end, 50)
 end
 
 -- ======================== 3. 通用模式快捷键 ========================
@@ -304,36 +425,41 @@ keymap.set("n", "gbo", ":BufferLineCloseOthers<CR>", { desc = "gbo：关闭其�
 
 -- ======================== 6. 代码运行快捷键 ========================
 keymap.set("n", "rc", function()
-	-- 1. 剪贴板内容写入 data；2. 复制完整代码到剪贴板；3. 带数据运行（不加 -DIHXNAN）
-	paste_to_data()
-	clipboard.copy_all_with_info()
-	run_code(true, false)
-end, { desc = "rc：剪贴板→data，复制完整代码，带数据运行（无宏）" })
+	-- 配合插件：遍历 <名>.1.in / <名>.2.in…，逐组与 <名>.N.out 判题；不加 -DIHXNAN
+	run_code({ files = "plugin", macro = false, check = true, cmd = "rc" })
+end, { desc = "rc：插件样例全部判题（不加 -DIHXNAN，对比 .N.out）" })
 keymap.set("n", "rl", run_local, { desc = "rl：本地调试运行C/C++代码（带 -DIHXNAN 宏）" })
 keymap.set("n", "ru", run_cuda, { desc = "ru：运行CUDA/C/C++代码" })
 keymap.set("n", "rd", function()
-	run_code(true, true)
-end, { desc = "rd：带数据运行代码（读取本文件专属 data，带 -DIHXNAN）" })
-keymap.set(
-	"n",
-	"rp",
-	run_code_with_paste,
-	{ desc = "rp：粘贴剪贴板到本文件专属 data 后带数据运行（带 -DIHXNAN）" }
-)
+	-- 同 rc；加 -DIHXNAN（gdb 走 stderr，stdout 只留程序结果）
+	run_code({ files = "plugin", macro = true, check = true, cmd = "rd" })
+end, { desc = "rd：插件样例全部判题（带 -DIHXNAN，对比 .N.out）" })
+keymap.set("n", "rp", function()
+	-- 粘贴剪贴板到 <名>.txt，再带数据运行（带 -DIHXNAN，不判题）
+	vim.cmd("w")
+	paste_to_data()
+	vim.defer_fn(function()
+		run_code({ files = "manual", macro = true, cmd = "rp" })
+	end, 50)
+end, { desc = "rp：粘贴剪贴板到 <名>.txt 后带数据运行（带 -DIHXNAN）" })
+keymap.set("n", "rn", function()
+	-- 读 <名>.txt 带数据运行（带 -DIHXNAN，不判题）——即加插件前的 rd
+	run_code({ files = "manual", macro = true, cmd = "rn" })
+end, { desc = "rn：读 <名>.txt 带数据运行（带 -DIHXNAN，不判题）" })
 keymap.set(
 	"n",
 	"dp",
 	":w<CR><C-w>v:terminal fish -l<CR>idp",
 	{ desc = "dp：保存并运行dp工具（-k参数）" }
 )
--- cd 打开的是当前文件专属 data 文件（路径可能含空格），故打开前先建目录并 fnameescape
+-- cd 打开的是当前文件专属手动数据文件 <名>.txt（路径可能含空格），故打开前先建目录并 fnameescape
 local open_data_file = function()
-	local f = get_data_file()
-	ensure_data_dir(f)
+	local f = paths.txt_file()
+	paths.ensure_dir(f)
 	vim.cmd("edit " .. vim.fn.fnameescape(f))
 end
-keymap.set("n", "cd", open_data_file, { desc = "cd：快速打开当前文件的算法输入数据文件" })
-keymap.set("n", "cp", paste_to_data, { desc = "cp：覆盖写入剪贴板内容到 data 文件" })
+keymap.set("n", "cd", open_data_file, { desc = "cd：快速打开当前文件的 <名>.txt 数据文件" })
+keymap.set("n", "cp", paste_to_data, { desc = "cp：覆盖写入剪贴板内容到 <名>.txt" })
 keymap.set("n", "ct", ":e ~/Github/Template<CR>", { desc = "ct：快速打开算法模板文件" })
 
 -- ======================== 7. HTML 预览快捷键 ========================
@@ -392,7 +518,7 @@ keymap.set("n", "K", "5k", { desc = "K：快速向上移动5行" })
 local submit = function()
 	vim.cmd("w")
 	local name = vim.fn.expand("%:p")
-	print("正在提交：" .. name)
+	print("Submitting: " .. name)
 
 	vim.system({
 		"/home/ihxnan/.local/bin/server",
@@ -402,9 +528,9 @@ local submit = function()
 		-- 回调函数不在 nvim 主线程，必须套 vim.schedule
 		vim.schedule(function()
 			if res.code == 0 then
-				vim.notify("✅ 提交成功\n" .. res.stdout, vim.log.levels.INFO)
+				vim.notify("✅ Submit succeeded\n" .. res.stdout, vim.log.levels.INFO)
 			else
-				vim.notify("❌ 提交失败\n" .. res.stderr, vim.log.levels.ERROR)
+				vim.notify("❌ Submit failed\n" .. res.stderr, vim.log.levels.ERROR)
 			end
 		end)
 	end)
