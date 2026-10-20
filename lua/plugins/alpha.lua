@@ -1,11 +1,4 @@
 return {
-	-- 禁用 snacks.nvim 的 dashboard 避免冲突
-	{
-		"folke/snacks.nvim",
-		priority = 1000,
-		opts = { dashboard = { enabled = false }, notifier = { enabled = false } },
-	},
-
 	-- Alpha-nvim 启动界面
 	{
 		"goolord/alpha-nvim",
