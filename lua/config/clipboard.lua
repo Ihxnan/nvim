@@ -51,7 +51,7 @@ local PY_INCLUDE_FILE = (function()
 	if env and env ~= "" then
 		return env
 	end
-	return "/home/ihxnan/.local/lib/python3.14/site-packages/ihxnan.py"
+	return "/usr/lib/python3.14/site-packages/ihxnan.py"
 end)()
 
 -- 常见 C/C++ 标准库头：单独 #include 时视为标准库，不参与内联

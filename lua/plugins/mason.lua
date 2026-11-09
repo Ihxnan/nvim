@@ -19,6 +19,7 @@ return {
                 -- C/C++
                 "clang-format",
                 "clangd",
+                "codelldb",          -- nvim-dap 的 C/C++ 调试适配器
 
                 -- Lua
                 "lua-language-server",

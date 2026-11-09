@@ -66,6 +66,23 @@ function M.out_file(bufnr, n)
 	return M.test_file(bufnr, n or 1, "out")
 end
 
+--- 删除该缓冲区对应的全部插件样例（<名>.*.in / <名>.*.out）
+--- @param bufnr number|nil 缓冲区号
+--- @return number 实际删除的文件数
+function M.clear_tests(bufnr)
+	local parent, stem = M.parts(bufnr)
+	local prefix = join(parent, stem) .. ".*."
+	local deleted = 0
+	for _, ext in ipairs({ "in", "out" }) do
+		for _, f in ipairs(vim.fn.glob(prefix .. ext, false, true)) do
+			if vim.fn.delete(f) == 0 then
+				deleted = deleted + 1
+			end
+		end
+	end
+	return deleted
+end
+
 --- 手动数据文件（rp/rn/cp/cd 用）：<名>.txt
 function M.txt_file(bufnr)
 	local parent, stem = M.parts(bufnr)

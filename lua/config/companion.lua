@@ -78,6 +78,9 @@ function M.handle(body)
 		return
 	end
 
+	-- 收新题前先清掉同名旧样例：上次可能比这次多几组，残留的 .N.in/.N.out 会干扰 rc/rd 判题
+	paths.clear_tests(0)
+
 	local written = 0
 	for i, t in ipairs(tests) do
 		if type(t) == "table" then
